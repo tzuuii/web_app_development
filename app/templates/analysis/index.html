@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+
+{% block head %}
+<!-- 載入 Chart.js 供繪製圖表 -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+    /* 弱點分析卡片特殊樣式 */
+    .accuracy-bar {
+        height: 8px;
+        border-radius: 4px;
+        background-color: rgba(255, 255, 255, 0.1);
+        overflow: hidden;
+        margin-top: 8px;
+    }
+    .accuracy-fill {
+        height: 100%;
+        border-radius: 4px;
+        transition: width 1s ease-in-out;
+    }
+    .weak-topic {
+        background: rgba(220, 53, 69, 0.15);
+        border-left: 4px solid #dc3545;
+    }
+    .strong-topic {
+        background: rgba(40, 167, 69, 0.15);
+        border-left: 4px solid #28a745;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row mb-4 align-items-center">
+    <div class="col-md-8">
+        <h1 class="fw-bold"><i class="fa-solid fa-ranking-star text-warning me-2"></i> 學習弱點分析</h1>
+        <p class="text-light opacity-75 mb-0">我們根據您近期的 {{ total_answers }} 筆測驗作答記錄，分析出各知識點的掌握度。</p>
+    </div>
+    <div class="col-md-4 text-md-end mt-3 mt-md-0">
+        <a href="/quiz/generate" class="btn btn-primary rounded-pill px-4">
+            <i class="fa-solid fa-pen-to-square"></i> 建立新測驗
+        </a>
+    </div>
+</div>
+
+{% if total_answers > 0 %}
+<div class="row g-4">
+    <!-- 分析圖表區塊 -->
+    <div class="col-lg-6">
+        <div class="card card-premium h-100">
+            <div class="card-body d-flex flex-column">
+                <h5 class="card-title fw-bold mb-4 text-center"><i class="fa-solid fa-chart-radar text-info"></i> 知識點掌握度雷達圖</h5>
+                <div class="flex-grow-1 d-flex justify-content-center align-items-center" style="min-height: 300px;">
+                    <canvas id="weaknessChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 詳細數據區塊 -->
+    <div class="col-lg-6">
+        <div class="card card-premium h-100">
+            <div class="card-body">
+                <h5 class="card-title fw-bold mb-4"><i class="fa-solid fa-list-check text-success"></i> 各單元詳細表現 (由弱至強)</h5>
+                
+                <div class="overflow-auto pe-2" style="max-height: 400px;">
+                    {% for item in weakness_data %}
+                        {% set is_weak = item.accuracy_percent < 60 %}
+                        {% set color_class = 'bg-danger' if is_weak else 'bg-success' if item.accuracy_percent >= 80 else 'bg-warning' %}
+                        
+                        <div class="p-3 mb-3 rounded shadow-sm {{ 'weak-topic' if is_weak else 'strong-topic' if item.accuracy_percent >= 80 else 'bg-dark bg-opacity-25' }}">
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <h6 class="mb-0 fw-bold">{{ item.topic }}</h6>
+                                <span class="badge {{ color_class }} rounded-pill">{{ item.accuracy_percent }}%</span>
+                            </div>
+                            <div class="small text-light opacity-75 mb-2">
+                                答對 {{ item.correct }} / 共 {{ item.total }} 題
+                            </div>
+                            
+                            <!-- 進度條 -->
+                            <div class="accuracy-bar">
+                                <div class="accuracy-fill {{ color_class }}" style="width: {{ item.accuracy_percent }}%;"></div>
+                            </div>
+                            
+                            {% if is_weak %}
+                            <div class="mt-3 text-end">
+                                <a href="#" class="btn btn-sm btn-outline-danger rounded-pill">
+                                    <i class="fa-solid fa-book-open-reader"></i> 針對此知識點複習
+                                </a>
+                            </div>
+                            {% endif %}
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="card card-premium text-center p-5 mt-4">
+    <div class="card-body">
+        <i class="fa-solid fa-clipboard-question fa-4x text-muted mb-4 opacity-50"></i>
+        <h3 class="fw-bold">還沒有足夠的作答數據</h3>
+        <p class="text-light opacity-75 mb-4">系統需要您完成幾次測驗才能分析出您的弱點喔！</p>
+        <a href="/quiz/generate" class="btn btn-lg btn-primary rounded-pill px-5">
+            <i class="fa-solid fa-play"></i> 立即開始測驗
+        </a>
+    </div>
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+{% if total_answers > 0 %}
+<!-- 將後端傳來的 JSON 資料綁定給 JS 使用 -->
+<script type="application/json" id="chartData">{{ chart_data_json|safe }}</script>
+<script>
+    document.addEventListener("DOMContentLoaded", function() {
+        const rawData = document.getElementById('chartData').textContent;
+        const dataList = JSON.parse(rawData);
+        
+        // 解析 labels (topic) 和 data (accuracy)
+        const labels = dataList.map(item => item.topic);
+        const dataPoints = dataList.map(item => item.accuracy);
+        
+        const ctx = document.getElementById('weaknessChart').getContext('2d');
+        
+        // 由於我們排序是由低到高，繪圖時我們也照樣用，或者如果想打亂/按字母排序也可以
+        
+        new Chart(ctx, {
+            type: 'radar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: '掌握度 (%)',
+                    data: dataPoints,
+                    backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                    borderColor: 'rgba(54, 162, 235, 1)',
+                    pointBackgroundColor: 'rgba(54, 162, 235, 1)',
+                    pointBorderColor: '#fff',
+                    pointHoverBackgroundColor: '#fff',
+                    pointHoverBorderColor: 'rgba(54, 162, 235, 1)',
+                    borderWidth: 2,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    r: {
+                        angleLines: { color: 'rgba(255, 255, 255, 0.1)' },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                        pointLabels: {
+                            color: '#f8f9fa',
+                            font: { size: 13, family: 'Inter' }
+                        },
+                        ticks: {
+                            color: 'rgba(255, 255, 255, 0.5)',
+                            backdropColor: 'transparent',
+                            stepSize: 20,
+                            max: 100,
+                            min: 0
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        labels: { color: '#f8f9fa', font: { family: 'Inter' } }
+                    },
+                    tooltip: {
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        titleFont: { family: 'Inter' },
+                        bodyFont: { family: 'Inter' },
+                        callbacks: {
+                            label: function(context) {
+                                return `正確率: ${context.raw}%`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    });
+</script>
+{% endif %}
+{% endblock %}
